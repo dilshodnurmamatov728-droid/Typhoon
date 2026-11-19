@@ -1,64 +1,42 @@
-﻿# Typhoon
+# Typhoon
 
-AI-powered mobility and local delivery platform.
+Qorako'l (Buxoro viloyati) uchun taxi platformasi. Dispetcher yo'q: mijoz va haydovchi ilova orqali, eng yaqin masofa bo'yicha avtomatik bog'lanadi. Mijoz manzil tushuntirmaydi — GPS uning aniq joyini oladi.
 
-## Vision
+Uzoq muddatli reja: Qorako'l → Buxoro → intercity → butun O'zbekiston; keyin courier va cargo.
 
-Typhoon is an AI-powered mobility and local delivery platform starting in Qorako'l, Bukhara, Uzbekistan.
+## Hozirgi bosqich
 
-The project is designed to provide reliable taxi, delivery, and location-based services, with future expansion to Bukhara city and other regions.
+**Phase 1 — Qorako'l Taxi MVP.** Batafsil reja va progress: [docs/ROADMAP.md](docs/ROADMAP.md)
 
-## Project Structure
+## Struktura
 
-- `backend/` — Backend API and server-side logic
-- `ai/` — Artificial intelligence and machine learning components
-- `mobile/` — Mobile application
-- `admin/` — Admin dashboard and management tools
-- `database/` — Database models, schemas, and migrations
-- `tests/` — Automated tests
-- `docs/` — Project documentation
+```
+Typhoon/
+├── apps/
+│   ├── customer-app/   # Mijoz ilovasi (Expo + React Native + TypeScript)
+│   └── driver-app/     # Haydovchi ilovasi (keyinroq)
+├── admin/              # Admin panel (React + Vite, keyinroq)
+├── supabase/           # Database sxemasi, migrations, Edge Functions (keyinroq)
+├── docs/               # Reja, qarorlar, hujjatlar
+└── CLAUDE.md           # Claude Code uchun loyiha konteksti
+```
 
-## Initial Features
+## Stack
 
-- Taxi booking
-- Local delivery
-- AI-powered services
-- Location-based services
-- User and driver management
-- Admin management
+| Qism | Texnologiya |
+|---|---|
+| Mobil ilovalar | Expo (React Native) + TypeScript |
+| Backend + DB | Supabase (Postgres + PostGIS, Auth, Realtime, Storage) |
+| Dispatch | Supabase Edge Functions + pg_cron |
+| Admin | React (Vite), Vercel |
+| Xarita | Google Maps SDK (oddiy + satellite) |
+| SMS | Eskiz.uz |
 
-## Development Status
+## Ishga tushirish (customer-app)
 
-Early development.
+```
+cd apps/customer-app
+npx expo start
+```
 
-## Technology
-
-The technology stack is currently under development.
-
-Planned technologies include:
-
-- Python
-- FastAPI
-- PostgreSQL
-- PostGIS
-- Redis
-- WebSockets
-- Flutter
-- AI/ML technologies
-
-## Roadmap
-
-1. Build the core backend
-2. Design the database
-3. Develop the taxi MVP
-4. Build the mobile application
-5. Develop the admin system
-6. Launch an initial pilot in Qorako'l
-7. Add AI-powered features
-8. Expand to Bukhara city
-9. Expand to other regions
-10. Add advanced delivery and mobility services
-
-## License
-
-This project is currently under development. Licensing terms will be defined in a future release.
+Telefonda Expo Go orqali QR kodni skanerlang (telefon va kompyuter bitta Wi-Fi'da).

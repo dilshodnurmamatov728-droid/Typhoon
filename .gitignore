@@ -1,36 +1,51 @@
-# Python
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+*.tsbuildinfo
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Native build artefaktlari
+android/
+ios/
+*.apk
+*.aab
+*.ipa
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# Python (eski kod)
 __pycache__/
 *.py[cod]
 .venv/
 venv/
-env/
 
-# Environment variables
+# Eski kod arxivi (git'ga kirmaydi)
+_old/
+
+# Environment variables va maxfiy kalitlar
 .env
 .env.*
+!.env.example
+secrets/
+*.pem
+*.key
 
-# IDE
+# Supabase lokal
+supabase/.branches/
+supabase/.temp/
+
+# IDE / OS
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
-# Database
-*.sqlite3
-*.db
-
-# Flutter
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-build/
-
-# Secrets
-secrets/
-*.pem
-*.key
