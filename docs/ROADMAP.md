@@ -6,13 +6,25 @@ Oxirgi yangilanish: 2026-11-19
 
 Qorako'l ichida ishlaydigan taxi: mijoz bir tugma bosadi, GPS uning aniq joyini oladi, buyurtma eng yaqin bo'sh haydovchiga boradi. Hozirgi muammo: mijozlar 20–30 daqiqa kutadi, haydovchi 1–2 km uzoqdan biriktiriladi.
 
-## Bosqichlar (taxminiy muddatlar)
+## Tanlangan yo'l: tez pilot (~3–4 hafta)
 
-| Bosqich | Nima ishlaydi | Muddat |
+Ish taqsimoti: Claude — ilova kodi. Dilshod — sinov, akkauntlar, haydovchilar, narx, Qorako'ldagi dala ishlari. Kuniga 7–8 soat.
+
+Pilotda qo'lda qilinadi: haydovchilarni Supabase dashboard'da qo'shish/tasdiqlash (admin panel yo'q), bitta belgilangan narx, APK to'g'ridan-to'g'ri tarqatiladi (Play Market keyin), SMS keyin.
+
+| Bosqich | Nima ishlaydi | Taxminiy muddat |
 |---|---|---|
-| Prototype | 2 telefonda: buyurtma → taklif → qabul → jonli kuzatish → yakun | 2–3 hafta |
-| MVP | 5–10 haydovchi bilan Qorako'lda pilot | +4–6 hafta |
-| Production | Play Market, barqaror, monitoring | 3–4+ oy |
+| Prototype | 2 telefonda: buyurtma → taklif → qabul → jonli kuzatish → yakun | ~2 hafta |
+| Pilot | 5–10 tanish haydovchi, birinchi real mijozlar, APK orqali | ~3–4 hafta |
+| To'liq MVP | Admin panel, SMS, reyting, Play Market | pilotdan keyin +3–4 hafta |
+
+## Dilshodning parallel vazifalari (kod bilan bir vaqtda)
+
+- [ ] 5–10 haydovchi bilan gaplashish, pilotga rozilik olish
+- [ ] Hozirgi narxlar: Qorako'l ichida taxi qancha oladi
+- [ ] Raqobat: Yandex Go va dispetcherlar qanday ishlaydi
+- [ ] Qonuniy talablarni aniqlash
+- [ ] Google Cloud akkaunt (Maps API kaliti uchun), Supabase akkaunt
 
 ## Phase 1 — Prototype qadamlari
 

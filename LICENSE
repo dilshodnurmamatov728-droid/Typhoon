@@ -1,0 +1,39 @@
+Copyright (c) 2026 Dilshod Nurmamatov. All rights reserved.
+
+PROPRIETARY AND CONFIDENTIAL
+
+This software and its source code, documentation, designs, algorithms
+(including the dispatch logic), database schemas, and all related
+materials (the "Software") are the exclusive property of Dilshod Nurmamatov
+(the "Owner"), the founder of the Typhoon project.
+
+No license is granted. Without the Owner's prior written permission, no
+person or organization may:
+
+  1. copy, reproduce, or distribute the Software, in whole or in part;
+  2. modify, adapt, translate, or create derivative works based on it;
+  3. use the Software or any part of it for any commercial or
+     non-commercial purpose;
+  4. sell, sublicense, rent, lease, publish, or otherwise make it
+     available to any third party;
+  5. reverse engineer, decompile, or disassemble any compiled form of it.
+
+Access to this repository, if granted, is for the sole purpose specified
+by the Owner and does not transfer any ownership or usage rights. Anyone
+who receives access must keep the Software confidential.
+
+Any unauthorized use, copying, or distribution is strictly prohibited and
+may result in legal action.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED.
+
+---
+
+Mualliflik huquqi (c) 2026 Dilshod Nurmamatov. Barcha huquqlar himoyalangan.
+
+Ushbu dasturiy ta'minot, uning manba kodi, hujjatlari, dizayni, algoritmlari
+(jumladan dispatch tizimi) va ma'lumotlar bazasi sxemalari Typhoon loyihasi
+asoschisi Dilshod Nurmamatovning mulki hisoblanadi. Egasining yozma
+ruxsatisiz nusxalash, o'zgartirish, tarqatish, sotish yoki har qanday
+maqsadda foydalanish qat'iyan taqiqlanadi.
