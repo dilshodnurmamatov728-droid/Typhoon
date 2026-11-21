@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Region } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
+import { supabase, toPoint } from './src/lib/supabase';
 
 // Typhoon ranglari: qora, oq, oltin
 const COLORS = {
@@ -21,26 +24,46 @@ const COLORS = {
   gold: '#D4AF37',
   white: '#FFFFFF',
   gray: '#9A9A9F',
+  green: '#2ECC71',
 };
 
-// Qorako'l markazi (taxminiy koordinata). GPS ishlamasa, xarita shu yerdan ochiladi.
+// Qorako'l markazi (taxminiy). GPS ishlamasa, xarita shu yerdan ochiladi.
 const QORAKOL: Region = {
   latitude: 39.5275,
   longitude: 63.8536,
   latitudeDelta: 0.03,
   longitudeDelta: 0.03,
 };
-
-// Mijozni topgandan keyingi yaqinlashtirish darajasi (ko'cha darajasi)
 const STREET_ZOOM = { latitudeDelta: 0.004, longitudeDelta: 0.004 };
 
 type Coords = { latitude: number; longitude: number };
 type PermissionState = 'loading' | 'granted' | 'denied' | 'blocked';
+type RideStatus =
+  | 'searching'
+  | 'accepted'
+  | 'arrived'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'no_driver';
+type Ride = { id: string; status: RideStatus; driver_id: string | null };
+type DriverInfo = {
+  car_model: string | null;
+  car_color: string | null;
+  plate_number: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  name: string | null;
+  phone: string | null;
+};
+
+const ACTIVE_STATUSES: RideStatus[] = ['searching', 'accepted', 'arrived', 'in_progress'];
 
 export default function App() {
   const mapRef = useRef<MapView>(null);
   const geocodeRequestId = useRef(0);
 
+  // --- xarita va joylashuv ---
   const [permission, setPermission] = useState<PermissionState>('loading');
   const [pickup, setPickup] = useState<Coords | null>(null);
   const [address, setAddress] = useState('');
@@ -49,11 +72,132 @@ export default function App() {
   const [mapMoving, setMapMoving] = useState(false);
   const [locating, setLocating] = useState(false);
 
+  // --- foydalanuvchi va buyurtma ---
+  const [userId, setUserId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<{ full_name: string | null; phone: string | null }>({
+    full_name: null,
+    phone: null,
+  });
+  const [askProfile, setAskProfile] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('+998');
+  const [note, setNote] = useState('');
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [driver, setDriver] = useState<DriverInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     locateMe();
+    signIn();
   }, []);
 
-  // 1) Ruxsat so'raydi  2) GPS orqali aniq joyni oladi  3) Xaritani shu joyga olib boradi
+  // 1) Mijozni avtomatik tanib olish (pilotda SMS va parol yo'q)
+  async function signIn() {
+    try {
+      const { data } = await supabase.auth.getSession();
+      let uid = data.session?.user.id ?? null;
+      if (!uid) {
+        const { data: anon, error } = await supabase.auth.signInAnonymously();
+        if (error) throw error;
+        uid = anon.user?.id ?? null;
+      }
+      setUserId(uid);
+      if (!uid) return;
+
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('full_name, phone')
+        .eq('id', uid)
+        .maybeSingle();
+      if (p) setProfile(p);
+
+      // Ilova yopilib ochilsa, tugallanmagan buyurtmani qayta tiklaymiz
+      const { data: active } = await supabase
+        .from('rides')
+        .select('id, status, driver_id')
+        .eq('customer_id', uid)
+        .in('status', ACTIVE_STATUSES)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (active) setRide(active as Ride);
+    } catch (e: any) {
+      Alert.alert('Serverga ulanib bo\'lmadi', e?.message ?? 'Internetni tekshiring.');
+    }
+  }
+
+  // 2) Buyurtma holatini jonli kuzatish (Realtime)
+  useEffect(() => {
+    if (!ride?.id) return;
+    const channel = supabase
+      .channel(`ride-${ride.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'rides', filter: `id=eq.${ride.id}` },
+        (payload) => setRide(payload.new as Ride)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [ride?.id]);
+
+  // 3) Haydovchi biriktirilganda uning ma'lumoti va jonli joylashuvi
+  useEffect(() => {
+    const driverId = ride?.driver_id;
+    if (!driverId) {
+      setDriver(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const [{ data: d }, { data: p }] = await Promise.all([
+        supabase
+          .from('drivers')
+          .select('car_model, car_color, plate_number, location_lat, location_lng')
+          .eq('id', driverId)
+          .maybeSingle(),
+        supabase.from('profiles').select('full_name, phone').eq('id', driverId).maybeSingle(),
+      ]);
+      if (!cancelled && d) {
+        setDriver({ ...d, name: p?.full_name ?? null, phone: p?.phone ?? null });
+      }
+    })();
+
+    const channel = supabase
+      .channel(`driver-${driverId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'drivers', filter: `id=eq.${driverId}` },
+        (payload) => {
+          const n = payload.new as any;
+          setDriver((prev) =>
+            prev ? { ...prev, location_lat: n.location_lat, location_lng: n.location_lng } : prev
+          );
+        }
+      )
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [ride?.driver_id]);
+
+  // Yakuniy holatlar uchun xabar
+  useEffect(() => {
+    if (!ride) return;
+    if (ride.status === 'no_driver') {
+      Alert.alert('Haydovchi topilmadi', "Hozir yaqin atrofda bo'sh haydovchi yo'q. Birozdan keyin qayta urinib ko'ring.");
+      setRide(null);
+    } else if (ride.status === 'completed') {
+      Alert.alert('Safar yakunlandi', 'Typhoon bilan yurganingiz uchun rahmat!');
+      setRide(null);
+    } else if (ride.status === 'cancelled') {
+      setRide(null);
+    }
+  }, [ride?.status]);
+
+  // --- Joylashuv ---
   async function locateMe() {
     setLocating(true);
     try {
@@ -63,65 +207,117 @@ export default function App() {
         return;
       }
       setPermission('granted');
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      const coords = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      };
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const coords = { latitude: position.coords.latitude, longitude: position.coords.longitude };
       setAccuracy(position.coords.accuracy ?? null);
       setPickup(coords);
       lookupAddress(coords);
       mapRef.current?.animateToRegion({ ...coords, ...STREET_ZOOM }, 800);
-    } catch (error) {
-      Alert.alert(
-        'Joylashuv aniqlanmadi',
-        "GPS yoqilganini tekshiring yoki ochiq joyga chiqib qayta urinib ko'ring."
-      );
+    } catch {
+      Alert.alert('Joylashuv aniqlanmadi', "GPS yoqilganini tekshiring yoki ochiq joyga chiqib qayta urinib ko'ring.");
     } finally {
       setLocating(false);
     }
   }
 
-  // Koordinatadan ko'cha nomini topishga urinadi. Qishloqlarda bo'sh qolishi mumkin.
   async function lookupAddress(coords: Coords) {
     const requestId = ++geocodeRequestId.current;
     setAddress('');
     try {
       const results = await Location.reverseGeocodeAsync(coords);
-      if (requestId !== geocodeRequestId.current) return; // eskirgan javob
+      if (requestId !== geocodeRequestId.current) return;
       const place = results[0];
       if (!place) return;
-      const text = [place.street, place.streetNumber, place.district, place.city]
-        .filter(Boolean)
-        .join(', ');
-      setAddress(text);
+      setAddress(
+        [place.street, place.streetNumber, place.district, place.city].filter(Boolean).join(', ')
+      );
     } catch {
-      // Manzil topilmasa ham muammo emas: haydovchi baribir aniq nuqtaga boradi
+      // manzil topilmasa ham haydovchi aniq nuqtaga keladi
     }
   }
 
-  // Mijoz xaritani surganda pin markazda qoladi; xarita to'xtaganda markaz = pickup nuqtasi
   function handleRegionChangeComplete(region: Region) {
     setMapMoving(false);
+    if (ride) return; // buyurtma ketgandan keyin pickup o'zgarmaydi
     const coords = { latitude: region.latitude, longitude: region.longitude };
     setPickup(coords);
     lookupAddress(coords);
   }
 
-  function handleOrder() {
-    if (!pickup) return;
-    Alert.alert(
-      'Pickup nuqtasi tanlandi',
-      `${pickup.latitude.toFixed(6)}, ${pickup.longitude.toFixed(6)}\n\n` +
-        "Keyingi qadamda bu buyurtma eng yaqin haydovchiga yuboriladi."
-    );
+  // --- Buyurtma ---
+  async function handleOrder() {
+    if (!pickup || !userId) return;
+    if (!profile.phone) {
+      setNameInput(profile.full_name ?? '');
+      setAskProfile(true);
+      return;
+    }
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('rides')
+      .insert({
+        customer_id: userId,
+        pickup: toPoint(pickup.latitude, pickup.longitude),
+        pickup_address: address || null,
+        pickup_note: note.trim() || null,
+      })
+      .select('id, status, driver_id')
+      .single();
+    setBusy(false);
+    if (error) {
+      Alert.alert('Buyurtma yuborilmadi', error.message);
+      return;
+    }
+    setRide(data as Ride);
   }
 
+  async function saveProfile() {
+    const phone = phoneInput.replace(/\s/g, '');
+    if (!/^\+998\d{9}$/.test(phone)) {
+      Alert.alert("Telefon raqam noto'g'ri", 'Masalan: +998901234567');
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase
+      .from('profiles')
+      .update({ full_name: nameInput.trim() || null, phone })
+      .eq('id', userId!);
+    setBusy(false);
+    if (error) {
+      Alert.alert('Saqlanmadi', error.message);
+      return;
+    }
+    setProfile({ full_name: nameInput.trim() || null, phone });
+    setAskProfile(false);
+  }
+
+  function confirmCancel() {
+    if (!ride) return;
+    Alert.alert('Buyurtmani bekor qilasizmi?', undefined, [
+      { text: "Yo'q", style: 'cancel' },
+      {
+        text: 'Ha, bekor qilish',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.rpc('cancel_ride', {
+            p_ride_id: ride.id,
+            p_reason: 'Mijoz bekor qildi',
+          });
+          if (error) Alert.alert('Xato', error.message);
+          else setRide(null);
+        },
+      },
+    ]);
+  }
+
+  // --- Ko'rinish ---
+  const driverCoords =
+    driver?.location_lat != null && driver?.location_lng != null
+      ? { latitude: driver.location_lat, longitude: driver.location_lng }
+      : null;
+
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar style={satellite ? 'light' : 'dark'} />
 
       <MapView
@@ -133,13 +329,22 @@ export default function App() {
         showsUserLocation={permission === 'granted'}
         showsMyLocationButton={false}
         toolbarEnabled={false}
+        scrollEnabled={!ride}
         onRegionChange={() => setMapMoving(true)}
         onRegionChangeComplete={handleRegionChangeComplete}
-      />
+      >
+        {driverCoords && (
+          <Marker coordinate={driverCoords} title="Haydovchi">
+            <View style={styles.carMarker}>
+              <Text style={styles.carMarkerText}>🚕</Text>
+            </View>
+          </Marker>
+        )}
+      </MapView>
 
-      {/* Markazdagi pin: xarita ostida suriladi, pin joyida turadi */}
+      {/* Markazdagi pin */}
       <View pointerEvents="none" style={styles.pinWrapper}>
-        <View style={[styles.pin, mapMoving && styles.pinLifted]}>
+        <View style={[styles.pin, mapMoving && !ride && styles.pinLifted]}>
           <View style={styles.pinHead}>
             <View style={styles.pinDot} />
           </View>
@@ -148,7 +353,6 @@ export default function App() {
         <View style={styles.pinShadow} />
       </View>
 
-      {/* Yuqori panel: brend va xarita turi */}
       <View style={styles.topBar}>
         <Text style={styles.brand}>TYPHOON</Text>
         <Pressable style={styles.chip} onPress={() => setSatellite((s) => !s)}>
@@ -156,7 +360,6 @@ export default function App() {
         </Pressable>
       </View>
 
-      {/* Pastki karta: manzil va tugmalar */}
       <View style={styles.sheet}>
         {permission === 'denied' || permission === 'blocked' ? (
           <>
@@ -173,13 +376,83 @@ export default function App() {
               </Text>
             </Pressable>
           </>
+        ) : askProfile ? (
+          // Birinchi buyurtmada: ism va telefon (haydovchi qo'ng'iroq qilishi uchun)
+          <>
+            <Text style={styles.label}>Birinchi buyurtma</Text>
+            <Text style={styles.title}>Haydovchi siz bilan bog'lanishi uchun</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ismingiz"
+              placeholderTextColor={COLORS.gray}
+              value={nameInput}
+              onChangeText={setNameInput}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="+998901234567"
+              placeholderTextColor={COLORS.gray}
+              keyboardType="phone-pad"
+              value={phoneInput}
+              onChangeText={setPhoneInput}
+            />
+            <View style={styles.row}>
+              <Pressable style={styles.secondaryButton} onPress={() => setAskProfile(false)}>
+                <Text style={styles.secondaryButtonText}>Orqaga</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton, styles.flex]} onPress={saveProfile} disabled={busy}>
+                <Text style={styles.primaryButtonText}>Saqlash</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : ride?.status === 'searching' ? (
+          <>
+            <Text style={styles.label}>BUYURTMA YUBORILDI</Text>
+            <View style={styles.row}>
+              <ActivityIndicator color={COLORS.gold} />
+              <Text style={[styles.title, styles.flex]}>Eng yaqin haydovchi qidirilmoqda...</Text>
+            </View>
+            <Pressable style={styles.secondaryButtonWide} onPress={confirmCancel}>
+              <Text style={styles.secondaryButtonText}>Bekor qilish</Text>
+            </Pressable>
+          </>
+        ) : ride && driver ? (
+          <>
+            <Text style={styles.label}>
+              {ride.status === 'accepted'
+                ? 'HAYDOVCHI YO\'LDA'
+                : ride.status === 'arrived'
+                  ? 'HAYDOVCHI YETIB KELDI'
+                  : 'SAFAR DAVOM ETMOQDA'}
+            </Text>
+            <Text style={styles.title}>
+              {[driver.car_color, driver.car_model].filter(Boolean).join(' ') || 'Mashina'} ·{' '}
+              {driver.plate_number ?? ''}
+            </Text>
+            <Text style={styles.subtitle}>{driver.name ?? 'Haydovchi'}</Text>
+            <View style={styles.row}>
+              {driver.phone && (
+                <Pressable
+                  style={[styles.primaryButton, styles.flex]}
+                  onPress={() => Linking.openURL(`tel:${driver.phone}`)}
+                >
+                  <Text style={styles.primaryButtonText}>Qo'ng'iroq</Text>
+                </Pressable>
+              )}
+              {ride.status !== 'in_progress' && (
+                <Pressable style={styles.secondaryButton} onPress={confirmCancel}>
+                  <Text style={styles.secondaryButtonText}>Bekor qilish</Text>
+                </Pressable>
+              )}
+            </View>
+          </>
+        ) : ride ? (
+          <ActivityIndicator color={COLORS.gold} />
         ) : (
           <>
             <Text style={styles.label}>Qayerdan olib ketamiz?</Text>
             <Text style={styles.title} numberOfLines={2}>
-              {mapMoving
-                ? 'Nuqtani tanlang...'
-                : address || 'Pin turgan joy (xaritani surib aniqlashtiring)'}
+              {mapMoving ? 'Nuqtani tanlang...' : address || 'Pin turgan joy (xaritani surib aniqlashtiring)'}
             </Text>
             {pickup && (
               <Text style={styles.subtitle}>
@@ -187,7 +460,14 @@ export default function App() {
                 {accuracy != null ? `  ·  GPS aniqligi ±${Math.round(accuracy)} m` : ''}
               </Text>
             )}
-
+            <TextInput
+              style={styles.input}
+              placeholder="Izoh (ixtiyoriy): masalan, ko'k darvoza oldida"
+              placeholderTextColor={COLORS.gray}
+              value={note}
+              onChangeText={setNote}
+              maxLength={120}
+            />
             <View style={styles.row}>
               <Pressable style={styles.secondaryButton} onPress={locateMe} disabled={locating}>
                 {locating ? (
@@ -197,17 +477,21 @@ export default function App() {
                 )}
               </Pressable>
               <Pressable
-                style={[styles.primaryButton, styles.flex, (!pickup || mapMoving) && styles.disabled]}
+                style={[styles.primaryButton, styles.flex, (!pickup || mapMoving || busy || !userId) && styles.disabled]}
                 onPress={handleOrder}
-                disabled={!pickup || mapMoving}
+                disabled={!pickup || mapMoving || busy || !userId}
               >
-                <Text style={styles.primaryButtonText}>Taxi chaqirish</Text>
+                {busy ? (
+                  <ActivityIndicator color={COLORS.black} />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Taxi chaqirish</Text>
+                )}
               </Pressable>
             </View>
           </>
         )}
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -240,13 +524,16 @@ const styles = StyleSheet.create({
   },
   pinDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.gold },
   pinStem: { width: 3, height: PIN_STEM, backgroundColor: COLORS.black },
-  pinShadow: {
-    width: 10,
-    height: 4,
-    borderRadius: 5,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    marginTop: -2,
+  pinShadow: { width: 10, height: 4, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.35)', marginTop: -2 },
+
+  carMarker: {
+    backgroundColor: COLORS.black,
+    borderColor: COLORS.gold,
+    borderWidth: 2,
+    borderRadius: 16,
+    padding: 4,
   },
+  carMarkerText: { fontSize: 18 },
 
   topBar: {
     position: 'absolute',
@@ -295,8 +582,18 @@ const styles = StyleSheet.create({
   label: { color: COLORS.gold, fontSize: 13, fontWeight: '600', letterSpacing: 0.5 },
   title: { color: COLORS.white, fontSize: 18, fontWeight: '700' },
   subtitle: { color: COLORS.gray, fontSize: 13 },
+  input: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: COLORS.white,
+    fontSize: 15,
+    marginTop: 4,
+  },
 
-  row: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  row: { flexDirection: 'row', gap: 10, marginTop: 6, alignItems: 'center' },
   flex: { flex: 1 },
   primaryButton: {
     backgroundColor: COLORS.gold,
@@ -305,18 +602,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
   },
   primaryButtonText: { color: COLORS.black, fontSize: 16, fontWeight: '800' },
   secondaryButton: {
     borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
+    paddingVertical: 16,
     paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
     minWidth: 120,
+  },
+  secondaryButtonWide: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 6,
   },
   secondaryButtonText: { color: COLORS.white, fontWeight: '600' },
   disabled: { opacity: 0.5 },
