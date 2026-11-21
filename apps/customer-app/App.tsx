@@ -46,7 +46,14 @@ type RideStatus =
   | 'completed'
   | 'cancelled'
   | 'no_driver';
-type Ride = { id: string; status: RideStatus; driver_id: string | null };
+type Ride = {
+  id: string;
+  status: RideStatus;
+  driver_id: string | null;
+  price_uzs?: number | null;
+  distance_m?: number | null;
+};
+type Tariff = { day_per_km_uzs: number; night_per_km_uzs: number; min_fare_uzs: number };
 type DriverInfo = {
   car_model: string | null;
   car_color: string | null;
@@ -85,11 +92,23 @@ export default function App() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [driver, setDriver] = useState<DriverInfo | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tariff, setTariff] = useState<Tariff | null>(null);
 
   useEffect(() => {
     locateMe();
     signIn();
   }, []);
+
+  // Tarifni bir marta yuklaymiz (narx haqida ma'lumot uchun)
+  useEffect(() => {
+    if (!userId) return;
+    supabase
+      .from('tariffs')
+      .select('day_per_km_uzs, night_per_km_uzs, min_fare_uzs')
+      .eq('id', 1)
+      .maybeSingle()
+      .then(({ data }) => data && setTariff(data as Tariff));
+  }, [userId]);
 
   // 1) Mijozni avtomatik tanib olish (pilotda SMS va parol yo'q)
   async function signIn() {
@@ -190,7 +209,9 @@ export default function App() {
       Alert.alert('Haydovchi topilmadi', "Hozir yaqin atrofda bo'sh haydovchi yo'q. Birozdan keyin qayta urinib ko'ring.");
       setRide(null);
     } else if (ride.status === 'completed') {
-      Alert.alert('Safar yakunlandi', 'Typhoon bilan yurganingiz uchun rahmat!');
+      const km = ((ride.distance_m ?? 0) / 1000).toFixed(1);
+      const sum = (ride.price_uzs ?? 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      Alert.alert('Safar yakunlandi', `Masofa: ${km} km\nTo'lov: ${sum} so'm (naqd)\n\nTyphoon bilan yurganingiz uchun rahmat!`);
       setRide(null);
     } else if (ride.status === 'cancelled') {
       setRide(null);
@@ -458,6 +479,12 @@ export default function App() {
               <Text style={styles.subtitle}>
                 {pickup.latitude.toFixed(6)}, {pickup.longitude.toFixed(6)}
                 {accuracy != null ? `  ·  GPS aniqligi ±${Math.round(accuracy)} m` : ''}
+              </Text>
+            )}
+            {tariff && (
+              <Text style={styles.subtitle}>
+                Narx: 1 km — {tariff.day_per_km_uzs} so'm (kechasi {tariff.night_per_km_uzs}), eng kami{' '}
+                {tariff.min_fare_uzs} so'm · naqd
               </Text>
             )}
             <TextInput

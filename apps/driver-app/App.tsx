@@ -42,12 +42,25 @@ type Ride = {
   pickup_note: string | null;
 };
 type Offer = { id: number; ride: Ride; distance_m: number | null };
+type Tariff = {
+  day_per_km_uzs: number;
+  night_per_km_uzs: number;
+  night_start_hour: number;
+  night_end_hour: number;
+  min_fare_uzs: number;
+  round_to_uzs: number;
+};
 
 const RIDE_FIELDS = 'id, status, customer_id, pickup_lat, pickup_lng, pickup_address, pickup_note';
 
 export default function App() {
   const mapRef = useRef<MapView>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastCoordsRef = useRef<Coords | null>(null);
+  // Taksometr: safar davomida bosib o'tilgan masofa (metr)
+  const tripMetersRef = useRef(0);
+  const rideStatusRef = useRef<RideStatus | null>(null);
 
   const [phase, setPhase] = useState<Phase>('loading');
   const [userId, setUserId] = useState<string | null>(null);
@@ -60,6 +73,8 @@ export default function App() {
   const [secondsLeft, setSecondsLeft] = useState(OFFER_SECONDS);
   const [ride, setRide] = useState<Ride | null>(null);
   const [customer, setCustomer] = useState<{ full_name: string | null; phone: string | null } | null>(null);
+  const [tripMeters, setTripMeters] = useState(0);
+  const [tariff, setTariff] = useState<Tariff | null>(null);
 
   // ---------------- Kirish ----------------
   useEffect(() => {
@@ -67,7 +82,7 @@ export default function App() {
       if (data.session) loadDriver(data.session.user.id);
       else setPhase('login');
     });
-    return () => watchRef.current?.remove();
+    return () => stopLocationUpdates();
   }, []);
 
   async function login() {
@@ -83,6 +98,7 @@ export default function App() {
 
   async function loadDriver(uid: string) {
     setUserId(uid);
+    supabase.from('tariffs').select('*').eq('id', 1).maybeSingle().then(({ data }) => data && setTariff(data as Tariff));
     const { data: d } = await supabase.from('drivers').select('status, is_online').eq('id', uid).maybeSingle();
     if (!d || d.status !== 'approved') {
       setPhase('not_approved');
@@ -118,20 +134,61 @@ export default function App() {
       Alert.alert('Ruxsat kerak', 'Buyurtma olish uchun joylashuvga ruxsat bering.');
       return false;
     }
-    watchRef.current?.remove();
+    stopLocationUpdates();
+
+    // Joylashuvni bazaga yozadi. Dispatch faqat oxirgi 2 daqiqada yangilangan haydovchilarni oladi.
+    const sendLocation = async (coords: Coords) => {
+      await supabase
+        .from('drivers')
+        .update({ location: toPoint(coords.latitude, coords.longitude), location_updated_at: new Date().toISOString() })
+        .eq('id', uid);
+    };
+
+    // Darhol bir marta aniq joyni olamiz
+    try {
+      const first = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const coords = { latitude: first.coords.latitude, longitude: first.coords.longitude };
+      lastCoordsRef.current = coords;
+      setMyLocation(coords);
+      await sendLocation(coords);
+    } catch {
+      // keyingi yangilanishda olinadi
+    }
+
+    // Haydovchi yursa: har 15 metrda
     watchRef.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 5000 },
-      async (pos) => {
+      (pos) => {
         const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        // Taksometr: faqat safar davomida, GPS aniq bo'lsa va keskin "sakrash" bo'lmasa sanaymiz
+        const prev = lastCoordsRef.current;
+        const accurate = (pos.coords.accuracy ?? 999) <= 50;
+        if (rideStatusRef.current === 'in_progress' && prev && accurate) {
+          const step = distanceMeters(prev, coords);
+          if (step < 500) {
+            tripMetersRef.current += step;
+            setTripMeters(tripMetersRef.current);
+          }
+        }
+        if (!accurate && prev) return; // noaniq nuqtani o'tkazib yuboramiz
+        lastCoordsRef.current = coords;
         setMyLocation(coords);
-        // Dispatch joylashuvi oxirgi 2 daqiqada yangilangan haydovchilarni hisobga oladi
-        await supabase
-          .from('drivers')
-          .update({ location: toPoint(coords.latitude, coords.longitude), location_updated_at: new Date().toISOString() })
-          .eq('id', uid);
+        sendLocation(coords);
       }
     );
+
+    // Haydovchi bir joyda tursa ham: har 20 soniyada "men shu yerdaman" signali
+    heartbeatRef.current = setInterval(() => {
+      if (lastCoordsRef.current) sendLocation(lastCoordsRef.current);
+    }, 20000);
     return true;
+  }
+
+  function stopLocationUpdates() {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+    heartbeatRef.current = null;
   }
 
   async function goOnline() {
@@ -147,8 +204,7 @@ export default function App() {
   }
 
   async function goOffline() {
-    watchRef.current?.remove();
-    watchRef.current = null;
+    stopLocationUpdates();
     if (userId) await supabase.from('drivers').update({ is_online: false }).eq('id', userId);
     setPhase((p) => (p === 'login' ? p : 'offline'));
   }
@@ -211,6 +267,10 @@ export default function App() {
 
   // ---------------- Faol safar ----------------
   useEffect(() => {
+    rideStatusRef.current = ride?.status ?? null;
+  }, [ride?.status]);
+
+  useEffect(() => {
     if (!ride?.id) return;
     supabase
       .from('profiles')
@@ -250,18 +310,32 @@ export default function App() {
   async function advance() {
     if (!ride) return;
     setBusy(true);
-    const { data, error } = await supabase.rpc('advance_ride', { p_ride_id: ride.id });
-    setBusy(false);
+    const finishing = ride.status === 'in_progress';
+    const { data, error } = await supabase.rpc('advance_ride', {
+      p_ride_id: ride.id,
+      p_distance_m: finishing ? Math.round(tripMetersRef.current) : null,
+    });
     if (error) {
+      setBusy(false);
       Alert.alert('Xato', error.message);
       return;
     }
     if (data === 'completed') {
-      Alert.alert('Safar yakunlandi', 'Keyingi buyurtma kutilmoqda.');
+      const { data: done } = await supabase.from('rides').select('price_uzs, distance_m').eq('id', ride.id).maybeSingle();
+      setBusy(false);
+      Alert.alert(
+        'Safar yakunlandi',
+        `Masofa: ${formatKm(done?.distance_m ?? 0)}\nMijozdan oling: ${formatSum(done?.price_uzs ?? 0)}`
+      );
       setRide(null);
       setCustomer(null);
       setPhase('waiting');
     } else {
+      setBusy(false);
+      if (data === 'in_progress') {
+        tripMetersRef.current = 0; // taksometr noldan boshlanadi
+        setTripMeters(0);
+      }
       setRide({ ...ride, status: data as RideStatus });
     }
   }
@@ -423,6 +497,14 @@ export default function App() {
                 <Button label="Qo'ng'iroq" color={COLORS.border} textColor={COLORS.white} onPress={() => Linking.openURL(`tel:${customer.phone}`)} flex />
               )}
             </View>
+            {ride.status === 'in_progress' && (
+              <View style={styles.meter}>
+                <Text style={styles.meterLabel}>TAKSOMETR</Text>
+                <Text style={styles.meterValue}>
+                  {formatKm(tripMeters)} · {tariff ? formatSum(estimateFare(tripMeters, tariff)) : '—'}
+                </Text>
+              </View>
+            )}
             <Button
               label={busy ? '...' : ride.status === 'accepted' ? 'Keldim' : ride.status === 'arrived' ? 'Safarni boshlash' : 'Safarni yakunlash'}
               color={COLORS.green}
@@ -444,6 +526,25 @@ function Button(props: { label: string; color: string; textColor?: string; onPre
       <Text style={[styles.buttonText, { color: props.textColor ?? COLORS.black }]}>{props.label}</Text>
     </Pressable>
   );
+}
+
+// Ekranda ko'rsatish uchun taxminiy narx. Yakuniy narxni server hisoblaydi.
+function estimateFare(meters: number, t: Tariff): number {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Tashkent' }).format(new Date())
+  );
+  const night = hour >= t.night_start_hour || hour < t.night_end_hour;
+  const perKm = night ? t.night_per_km_uzs : t.day_per_km_uzs;
+  const raw = Math.round(((meters / 1000) * perKm) / t.round_to_uzs) * t.round_to_uzs;
+  return Math.max(t.min_fare_uzs, raw);
+}
+
+function formatSum(uzs: number): string {
+  return `${uzs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} so'm`;
+}
+
+function formatKm(meters: number): string {
+  return `${(meters / 1000).toFixed(1)} km`;
 }
 
 // Ikki nuqta orasidagi to'g'ri chiziqli masofa (metr) — Haversine formulasi
@@ -472,6 +573,9 @@ const styles = StyleSheet.create({
   title: { color: COLORS.white, fontSize: 19, fontWeight: '700' },
   subtitle: { color: COLORS.gray, fontSize: 14 },
   input: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: COLORS.white, fontSize: 16 },
+  meter: { backgroundColor: COLORS.black, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.gold },
+  meterLabel: { color: COLORS.gold, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
+  meterValue: { color: COLORS.white, fontSize: 26, fontWeight: '800', marginTop: 4 },
   button: { borderRadius: 14, paddingVertical: 16, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
   buttonText: { fontSize: 16, fontWeight: '800' },
 });
