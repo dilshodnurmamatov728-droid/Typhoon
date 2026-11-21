@@ -530,9 +530,7 @@ function Button(props: { label: string; color: string; textColor?: string; onPre
 
 // Ekranda ko'rsatish uchun taxminiy narx. Yakuniy narxni server hisoblaydi.
 function estimateFare(meters: number, t: Tariff): number {
-  const hour = Number(
-    new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Tashkent' }).format(new Date())
-  );
+  const hour = (new Date().getUTCHours() + 5) % 24; // Toshkent vaqti (UTC+5, yozgi vaqt yo'q)
   const night = hour >= t.night_start_hour || hour < t.night_end_hour;
   const perKm = night ? t.night_per_km_uzs : t.day_per_km_uzs;
   const raw = Math.round(((meters / 1000) * perKm) / t.round_to_uzs) * t.round_to_uzs;
