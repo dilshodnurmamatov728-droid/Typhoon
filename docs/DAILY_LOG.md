@@ -17,6 +17,12 @@ Har kuni: nima qilindi, nima test qilindi, Dilshod nima qilishi kerak. Eng yangi
 - Xato topildi va tuzatildi: bir joyda turgan haydovchining joylashuvi yangilanmay, dispatch uni "eskirgan" deb o'tkazib yuborardi → driver app endi har 20 s signal yuboradi.
 - **Birinchi buyurtma serverda:** mijoz Dilshod → dispatch 12 m dagi haydovchiga taklif yubordi → haydovchi 8 soniyada qabul qildi (11:26:08). Ikkala ilova telefonda ishladi ✅.
 
+**Narx va taksometr ✅**
+- Tarif: 3000 so'm boshlang'ich + 1 km uchun 1100 so'm (kechasi 22:00–06:00: 1250), 100 so'mgacha yaxlitlanadi (`004_pricing.sql`, `005_base_fare.sql`). 1100/1250 = kunduzi/kechasi — taxmin, Dilshod tasdiqlashi kerak.
+- Haydovchi ilovasida jonli taksometr; yakuniy narxni server hisoblaydi; mijoz ilovasida tarif va yakuniy to'lov ko'rinadi.
+- **To'liq safar testi:** qabul 11:44:40 → yakun 11:48:18, 155 m, **3 200 so'm** (3000 + 155 m × 1100 = 3170 → 3200) ✅.
+- O'rganilgan saboq: test safari "Yakunlash"gacha bormasa haydovchi "band" qoladi.
+
 **Test qilindi**
 - 003 migratsiya va xavfsizlik qoidalari lokal PostgreSQL'da ✅ (haydovchi taklifdagi buyurtmani ko'radi; begona ko'rmaydi; mijoz haydovchi profilini faqat qabuldan keyin ko'radi; mijoz rolini o'zgartira olmaydi).
 - Ilova kodi telefonda hali test qilinmagan — Supabase loyihasi kerak.

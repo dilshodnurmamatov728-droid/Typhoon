@@ -40,6 +40,12 @@ Pilotda qo'lda qilinadi: haydovchilarni Supabase dashboard'da qo'shish/tasdiqlas
 - [ ] Step 9 — Qabul → jonli kuzatish → safar yakuni
 - [ ] Step 10 — Ikki telefonda to'liq sinov (prototype tayyor)
 
+## Driver app talablari (Dilshod, 2026-11-20)
+
+- [ ] Haydovchi mijoz qo'ygan aniq nuqtani **sputnik ko'rinishida** ko'radi (qaysi darvoza ekanini oldindan biladi)
+- [ ] **Navigatsiya:** "Yo'l ko'rsat" tugmasi → Google Maps yoki Yandex Navigator mijoz nuqtasiga ovozli yo'l ko'rsatadi (bepul, deep link orqali). Ilova ichidagi to'liq navigatsiya — keyin (pullik SDK kerak)
+- [ ] Mijozning ixtiyoriy izohi ("ko'k darvoza", "do'kon oldida") haydovchiga ko'rinadi
+
 ## MVP uchun qo'shiladi (prototype'dan keyin)
 
 Haydovchi ro'yxatdan o'tishi + admin tasdiqlashi, admin panel, bekor qilish sabablari, reyting, tarix, narx hisoblash, push notifications, Android fonda joylashuv barqarorligi, Play Market internal testing.
