@@ -11,6 +11,12 @@ Har kuni: nima qilindi, nima test qilindi, Dilshod nima qilishi kerak. Eng yangi
   - **Driver app:** login/parol, online/offline, joylashuvni bazaga yuborish, jonli takliflar + 15 s taymer, qabul/rad, "Yo'l ko'rsat" (Yandex/Google), mijozga qo'ng'iroq, Keldim → Boshlash → Yakunlash, mijoz bekor qilsa xabar.
 - `supabase/admin/add_driver.sql` — yangi haydovchi qo'shish shabloni.
 
+**Kunduzgi qism: birinchi haqiqiy buyurtma 🎉**
+- Supabase loyihasi `typhoon` yaratildi (Free, eu-west-1); 001, 002, 003 o'rnatildi va tekshirildi; anonymous sign-in yoqildi.
+- Haydovchi `driver1@typhoon.uz` qo'shildi va tasdiqlandi (test mashina: oq Cobalt, 80 A 123 AA).
+- Xato topildi va tuzatildi: bir joyda turgan haydovchining joylashuvi yangilanmay, dispatch uni "eskirgan" deb o'tkazib yuborardi → driver app endi har 20 s signal yuboradi.
+- **Birinchi buyurtma serverda:** mijoz Dilshod → dispatch 12 m dagi haydovchiga taklif yubordi → haydovchi 8 soniyada qabul qildi (11:26:08). Ikkala ilova telefonda ishladi ✅.
+
 **Test qilindi**
 - 003 migratsiya va xavfsizlik qoidalari lokal PostgreSQL'da ✅ (haydovchi taklifdagi buyurtmani ko'radi; begona ko'rmaydi; mijoz haydovchi profilini faqat qabuldan keyin ko'radi; mijoz rolini o'zgartira olmaydi).
 - Ilova kodi telefonda hali test qilinmagan — Supabase loyihasi kerak.
