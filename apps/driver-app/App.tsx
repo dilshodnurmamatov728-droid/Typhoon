@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import {
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
-import { supabase, toPoint } from './src/lib/supabase';
+import { supabase, supabaseConfigError, toPoint } from './src/lib/supabase';
 
 const COLORS = {
   black: '#0B0B0C',
@@ -42,7 +42,9 @@ type Ride = {
   pickup_note: string | null;
 };
 type Offer = { id: number; ride: Ride; distance_m: number | null };
+type Earnings = { today_rides: number; today_uzs: number; week_rides: number; week_uzs: number; rating: number | null };
 type Tariff = {
+  base_fare_uzs: number;
   day_per_km_uzs: number;
   night_per_km_uzs: number;
   night_start_hour: number;
@@ -53,7 +55,7 @@ type Tariff = {
 
 const RIDE_FIELDS = 'id, status, customer_id, pickup_lat, pickup_lng, pickup_address, pickup_note';
 
-export default function App() {
+function MainApp() {
   const mapRef = useRef<MapView>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,6 +77,7 @@ export default function App() {
   const [customer, setCustomer] = useState<{ full_name: string | null; phone: string | null } | null>(null);
   const [tripMeters, setTripMeters] = useState(0);
   const [tariff, setTariff] = useState<Tariff | null>(null);
+  const [earnings, setEarnings] = useState<Earnings | null>(null);
 
   // ---------------- Kirish ----------------
   useEffect(() => {
@@ -96,8 +99,14 @@ export default function App() {
     loadDriver(data.user.id);
   }
 
+  async function loadEarnings() {
+    const { data } = await supabase.rpc('driver_earnings');
+    if (Array.isArray(data) && data[0]) setEarnings(data[0] as Earnings);
+  }
+
   async function loadDriver(uid: string) {
     setUserId(uid);
+    loadEarnings();
     supabase.from('tariffs').select('*').eq('id', 1).maybeSingle().then(({ data }) => data && setTariff(data as Tariff));
     const { data: d } = await supabase.from('drivers').select('status, is_online').eq('id', uid).maybeSingle();
     if (!d || d.status !== 'approved') {
@@ -330,6 +339,7 @@ export default function App() {
       setRide(null);
       setCustomer(null);
       setPhase('waiting');
+      loadEarnings();
     } else {
       setBusy(false);
       if (data === 'in_progress') {
@@ -337,6 +347,40 @@ export default function App() {
         setTripMeters(0);
       }
       setRide({ ...ride, status: data as RideStatus });
+    }
+  }
+
+  // Haydovchi bekor qiladi: yo'lda — buyurtma keyingi haydovchiga o'tadi; yetib kelganda — "Mijoz chiqmadi"
+  function confirmDriverCancel() {
+    if (!ride) return;
+    const doCancel = async (reason: string | null) => {
+      setBusy(true);
+      const { data, error } = await supabase.rpc('driver_cancel_ride', { p_ride_id: ride.id, p_reason: reason });
+      setBusy(false);
+      if (error) {
+        Alert.alert('Xato', error.message);
+        return;
+      }
+      if (data === 'cannot_cancel') {
+        Alert.alert("Bekor qilib bo'lmaydi", 'Safar boshlangan.');
+        return;
+      }
+      setRide(null);
+      setCustomer(null);
+      setPhase('waiting');
+    };
+
+    if (ride.status === 'arrived') {
+      Alert.alert('Mijoz chiqmadimi?', 'Buyurtma yopiladi va siz yangi buyurtma olishingiz mumkin.', [
+        { text: "Yo'q", style: 'cancel' },
+        { text: 'Ha, mijoz chiqmadi', style: 'destructive', onPress: () => doCancel(null) },
+      ]);
+    } else {
+      Alert.alert('Buyurtmani bekor qilasizmi?', 'Buyurtma boshqa haydovchiga beriladi.', [
+        { text: "Yo'q", style: 'cancel' },
+        { text: 'Mashina buzildi', onPress: () => doCancel('mashina buzildi') },
+        { text: 'Boshqa sabab', onPress: () => doCancel('boshqa sabab') },
+      ]);
     }
   }
 
@@ -446,6 +490,7 @@ export default function App() {
           <>
             <Text style={styles.title}>Siz offline holatdasiz</Text>
             <Text style={styles.subtitle}>Buyurtma olish uchun online bo'ling.</Text>
+            {earnings && <EarningsCard e={earnings} />}
             <Button label={busy ? '...' : "Online bo'lish"} color={COLORS.green} onPress={goOnline} />
           </>
         )}
@@ -457,6 +502,7 @@ export default function App() {
               <Text style={[styles.title, { flex: 1 }]}>Buyurtma kutilmoqda...</Text>
             </View>
             <Text style={styles.subtitle}>Siz onlinesiz. Joylashuvingiz yangilanib turibdi.</Text>
+            {earnings && <EarningsCard e={earnings} />}
             <Button label="Offline bo'lish" color={COLORS.border} textColor={COLORS.white} onPress={goOffline} />
           </>
         )}
@@ -510,8 +556,77 @@ export default function App() {
               color={COLORS.green}
               onPress={advance}
             />
+            {(ride.status === 'accepted' || ride.status === 'arrived') && (
+              <Pressable onPress={confirmDriverCancel} disabled={busy} style={styles.textButton}>
+                <Text style={styles.textButtonLabel}>
+                  {ride.status === 'arrived' ? 'Mijoz chiqmadi' : 'Buyurtmani bekor qilish'}
+                </Text>
+              </Pressable>
+            )}
           </>
         )}
+      </View>
+    </View>
+  );
+}
+
+// Sozlamada xato bo'lsa — yopilib qolish o'rniga sababini ko'rsatamiz
+export default function App() {
+  if (supabaseConfigError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0B0B0C', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: '#D4AF37', fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Sozlama xatosi</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 15 }}>{supabaseConfigError}</Text>
+      </View>
+    );
+  }
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+// Kutilmagan xato bo'lsa ilova yopilib qolmasdan, xato matnini ekranda ko'rsatadi
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0B0B0C', justifyContent: 'center', padding: 24 }}>
+          <Text style={{ color: '#D4AF37', fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Xato yuz berdi</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 14 }} selectable>
+            {String(this.state.error?.message ?? this.state.error)}
+          </Text>
+          <Text style={{ color: '#9A9A9F', fontSize: 12, marginTop: 12 }}>
+            Shu ekranni screenshot qilib dasturchiga yuboring.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function EarningsCard({ e }: { e: Earnings }) {
+  return (
+    <View style={styles.earnings}>
+      <View style={styles.earningsCol}>
+        <Text style={styles.earningsLabel}>BUGUN</Text>
+        <Text style={styles.earningsValue}>{formatSum(e.today_uzs)}</Text>
+        <Text style={styles.earningsSub}>{e.today_rides} safar</Text>
+      </View>
+      <View style={styles.earningsCol}>
+        <Text style={styles.earningsLabel}>BU HAFTA</Text>
+        <Text style={styles.earningsValue}>{formatSum(e.week_uzs)}</Text>
+        <Text style={styles.earningsSub}>{e.week_rides} safar</Text>
+      </View>
+      <View style={styles.earningsCol}>
+        <Text style={styles.earningsLabel}>REYTING</Text>
+        <Text style={styles.earningsValue}>★ {e.rating ?? '—'}</Text>
       </View>
     </View>
   );
@@ -533,7 +648,7 @@ function estimateFare(meters: number, t: Tariff): number {
   const hour = (new Date().getUTCHours() + 5) % 24; // Toshkent vaqti (UTC+5, yozgi vaqt yo'q)
   const night = hour >= t.night_start_hour || hour < t.night_end_hour;
   const perKm = night ? t.night_per_km_uzs : t.day_per_km_uzs;
-  const raw = Math.round(((meters / 1000) * perKm) / t.round_to_uzs) * t.round_to_uzs;
+  const raw = Math.round((t.base_fare_uzs + (meters / 1000) * perKm) / t.round_to_uzs) * t.round_to_uzs;
   return Math.max(t.min_fare_uzs, raw);
 }
 
@@ -571,6 +686,13 @@ const styles = StyleSheet.create({
   title: { color: COLORS.white, fontSize: 19, fontWeight: '700' },
   subtitle: { color: COLORS.gray, fontSize: 14 },
   input: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14, color: COLORS.white, fontSize: 16 },
+  earnings: { flexDirection: 'row', backgroundColor: COLORS.black, borderRadius: 14, padding: 12, gap: 8, marginTop: 4 },
+  earningsCol: { flex: 1 },
+  earningsLabel: { color: COLORS.gold, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  earningsValue: { color: COLORS.white, fontSize: 15, fontWeight: '800', marginTop: 2 },
+  earningsSub: { color: COLORS.gray, fontSize: 12 },
+  textButton: { alignItems: 'center', paddingVertical: 10 },
+  textButtonLabel: { color: COLORS.gray, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
   meter: { backgroundColor: COLORS.black, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.gold },
   meterLabel: { color: COLORS.gold, fontSize: 12, fontWeight: '700', letterSpacing: 1 },
   meterValue: { color: COLORS.white, fontSize: 26, fontWeight: '800', marginTop: 4 },

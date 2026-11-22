@@ -8,13 +8,13 @@ import { AppState } from 'react-native';
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!url || !anonKey) {
-  throw new Error(
-    "Supabase sozlanmagan: .env faylida EXPO_PUBLIC_SUPABASE_URL va EXPO_PUBLIC_SUPABASE_ANON_KEY bo'lishi kerak"
-  );
-}
+// Sozlama xato bo'lsa ilova yopilib qolmaydi: App ekranda sababini ko'rsatadi
+export const supabaseConfigError: string | null =
+  !url || !anonKey
+    ? "Supabase sozlanmagan: EXPO_PUBLIC_SUPABASE_URL va EXPO_PUBLIC_SUPABASE_ANON_KEY topilmadi (.env yoki eas.json)"
+    : null;
 
-export const supabase = createClient(url, anonKey, {
+export const supabase = createClient(url ?? 'https://not-configured.invalid', anonKey ?? 'not-configured', {
   auth: {
     storage: AsyncStorage, // kirgan foydalanuvchi ilova yopilganda ham eslab qolinadi
     autoRefreshToken: true,

@@ -2,6 +2,24 @@
 
 Har kuni: nima qilindi, nima test qilindi, Dilshod nima qilishi kerak. Eng yangisi tepada.
 
+## 2026-11-22 (4-kun)
+
+**Qilindi (Dilshod kelguncha, ruxsatsiz ishlar)**
+- `006_ratings_earnings.sql` — mijoz haydovchini 1–5 yulduz bilan baholaydi (`rate_ride`), haydovchi reytingi oxirgi 100 baho o'rtachasi; haydovchi daromadi bugun/hafta (`driver_earnings`, Toshkent vaqti).
+- **Customer app:** safar tugagach "To'lov: X so'm" + 5 yulduzli baholash ekrani va izoh.
+- **Driver app:** "Bugun / Bu hafta / Reyting" kartasi (offline va kutish ekranida).
+- Ikkala ilova: sozlama xato bo'lsa yopilib qolmaydi — ekranda sababini ko'rsatadi (APK muammosini topishga ham yordam beradi).
+
+**Test qilindi**
+- 006 lokal PostgreSQL'da: daromad yig'indisi to'g'ri (9 900), o'rtacha reyting 4.5, ikki marta baho va begona baho rad etildi ✅.
+- Ilovalar: TypeScript sintaksis tekshiruvi o'tdi; telefonda hali sinalmagan.
+- 006 Supabase'ga hali o'rnatilmagan (brauzer ruxsati kerak).
+
+**Navbatda**
+- APK yopilish sababi: `adb logcat` (Dilshod telefonni ulaydi).
+- 006 ni Supabase'ga o'rnatish.
+- Google Maps API kaliti.
+
 ## 2026-11-21 (3-kun)
 
 **Qilindi**
@@ -22,6 +40,19 @@ Har kuni: nima qilindi, nima test qilindi, Dilshod nima qilishi kerak. Eng yangi
 - Haydovchi ilovasida jonli taksometr; yakuniy narxni server hisoblaydi; mijoz ilovasida tarif va yakuniy to'lov ko'rinadi.
 - **To'liq safar testi:** qabul 11:44:40 → yakun 11:48:18, 155 m, **3 200 so'm** (3000 + 155 m × 1100 = 3170 → 3200) ✅.
 - O'rganilgan saboq: test safari "Yakunlash"gacha bormasa haydovchi "band" qoladi.
+
+**Tushdan keyin: APK (to'xtagan joy) ⏸**
+- `eas.json` ikkala ilovaga qo'shildi (preview = APK, Supabase kalitlari ichida).
+- Driver app APK EAS'da yig'ildi ✅. Oxiridagi `adb` xatosi — faqat emulyatorga o'rnatish qadami (keyingi safar "Install on emulator?" → `n`).
+- **Muammo:** APK telefonda ochilishi bilan yopilyapti. Sababi hali aniqlanmagan.
+- `adb` o'rnatildi (`C:\platform-tools`). Telefon: Redmi Note 12 Pro, USB debugging yoqildi.
+
+**Kechqurun shu yerdan davom:**
+1. Telefonni ulash → USB oynasida "Take no action" → telefonda "USB orqali tuzatishga ruxsat" → OK.
+2. Terminal: `C:\platform-tools\adb.exe devices; C:\platform-tools\adb.exe logcat -c; C:\platform-tools\adb.exe logcat -v brief AndroidRuntime:E ReactNativeJS:V ReactNative:V *:S`
+3. Typhoon Driver'ni ochish → terminaldagi xatoni Claude'ga yuborish.
+4. Taxmin (tasdiqlanmagan): Google Maps API kaliti yo'qligi. Google Cloud'da kalit olish kerak (billing/karta — Dilshod).
+5. Keyin: customer-app APK, ikkala APK'ni Google kaliti bilan qayta yig'ish.
 
 **Test qilindi**
 - 003 migratsiya va xavfsizlik qoidalari lokal PostgreSQL'da ✅ (haydovchi taklifdagi buyurtmani ko'radi; begona ko'rmaydi; mijoz haydovchi profilini faqat qabuldan keyin ko'radi; mijoz rolini o'zgartira olmaydi).

@@ -25,6 +25,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCV13Q1BZ4OZ-9DlFTjsH2qTGZ3j-pU12c"
+        }
+      },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
@@ -38,6 +43,14 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Yaqin buyurtmalarni olish uchun joylashuvingiz kerak."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraProguardRules": "# WorkManager / Room: R8 bularni o'chirmasin (APK ochilganda yopilib qolish xatosi)\n-keep class androidx.work.impl.WorkDatabase_Impl { *; }\n-keepnames class androidx.work.impl.WorkDatabase\n-keep class * extends androidx.room.RoomDatabase { *; }"
+          }
         }
       ]
     ],

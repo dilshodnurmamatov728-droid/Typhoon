@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import {
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
-import { supabase, toPoint } from './src/lib/supabase';
+import { supabase, supabaseConfigError, toPoint } from './src/lib/supabase';
 
 // Typhoon ranglari: qora, oq, oltin
 const COLORS = {
@@ -53,7 +53,7 @@ type Ride = {
   price_uzs?: number | null;
   distance_m?: number | null;
 };
-type Tariff = { day_per_km_uzs: number; night_per_km_uzs: number; min_fare_uzs: number };
+type Tariff = { base_fare_uzs: number; day_per_km_uzs: number; night_per_km_uzs: number };
 type DriverInfo = {
   car_model: string | null;
   car_color: string | null;
@@ -66,9 +66,10 @@ type DriverInfo = {
 
 const ACTIVE_STATUSES: RideStatus[] = ['searching', 'accepted', 'arrived', 'in_progress'];
 
-export default function App() {
+function MainApp() {
   const mapRef = useRef<MapView>(null);
   const geocodeRequestId = useRef(0);
+  const prevDriverRef = useRef<string | null>(null);
 
   // --- xarita va joylashuv ---
   const [permission, setPermission] = useState<PermissionState>('loading');
@@ -93,6 +94,9 @@ export default function App() {
   const [driver, setDriver] = useState<DriverInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [tariff, setTariff] = useState<Tariff | null>(null);
+  const [rateRide, setRateRide] = useState<{ id: string; price: number; km: string } | null>(null);
+  const [stars, setStars] = useState(5);
+  const [comment, setComment] = useState('');
 
   useEffect(() => {
     locateMe();
@@ -104,7 +108,7 @@ export default function App() {
     if (!userId) return;
     supabase
       .from('tariffs')
-      .select('day_per_km_uzs, night_per_km_uzs, min_fare_uzs')
+      .select('base_fare_uzs, day_per_km_uzs, night_per_km_uzs')
       .eq('id', 1)
       .maybeSingle()
       .then(({ data }) => data && setTariff(data as Tariff));
@@ -202,6 +206,14 @@ export default function App() {
     };
   }, [ride?.driver_id]);
 
+  // Haydovchi yo'lda bekor qilsa: buyurtma qayta qidiruvga tushadi
+  useEffect(() => {
+    if (ride?.status === 'searching' && prevDriverRef.current) {
+      Alert.alert('Haydovchi bekor qildi', 'Sizga boshqa eng yaqin haydovchi qidirilmoqda.');
+    }
+    prevDriverRef.current = ride?.driver_id ?? null;
+  }, [ride?.status, ride?.driver_id]);
+
   // Yakuniy holatlar uchun xabar
   useEffect(() => {
     if (!ride) return;
@@ -209,11 +221,15 @@ export default function App() {
       Alert.alert('Haydovchi topilmadi', "Hozir yaqin atrofda bo'sh haydovchi yo'q. Birozdan keyin qayta urinib ko'ring.");
       setRide(null);
     } else if (ride.status === 'completed') {
-      const km = ((ride.distance_m ?? 0) / 1000).toFixed(1);
-      const sum = (ride.price_uzs ?? 0).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-      Alert.alert('Safar yakunlandi', `Masofa: ${km} km\nTo'lov: ${sum} so'm (naqd)\n\nTyphoon bilan yurganingiz uchun rahmat!`);
+      // Safar tugadi: to'lov summasi va haydovchini baholash ekrani
+      setRateRide({ id: ride.id, price: ride.price_uzs ?? 0, km: ((ride.distance_m ?? 0) / 1000).toFixed(1) });
+      setStars(5);
+      setComment('');
       setRide(null);
     } else if (ride.status === 'cancelled') {
+      if ((ride as any).cancel_reason === 'Mijoz chiqmadi') {
+        Alert.alert('Buyurtma yopildi', 'Haydovchi sizni kutdi, lekin siz chiqmadingiz.');
+      }
       setRide(null);
     }
   }, [ride?.status]);
@@ -312,6 +328,19 @@ export default function App() {
     setAskProfile(false);
   }
 
+  async function submitRating() {
+    if (!rateRide) return;
+    setBusy(true);
+    const { error } = await supabase.rpc('rate_ride', {
+      p_ride_id: rateRide.id,
+      p_stars: stars,
+      p_comment: comment.trim() || null,
+    });
+    setBusy(false);
+    if (error) Alert.alert('Baho yuborilmadi', error.message);
+    setRateRide(null);
+  }
+
   function confirmCancel() {
     if (!ride) return;
     Alert.alert('Buyurtmani bekor qilasizmi?', undefined, [
@@ -382,7 +411,38 @@ export default function App() {
       </View>
 
       <View style={styles.sheet}>
-        {permission === 'denied' || permission === 'blocked' ? (
+        {rateRide ? (
+          <>
+            <Text style={styles.label}>SAFAR YAKUNLANDI</Text>
+            <Text style={styles.title}>
+              To'lov: {rateRide.price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} so'm (naqd)
+            </Text>
+            <Text style={styles.subtitle}>Masofa: {rateRide.km} km · Haydovchini baholang</Text>
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <Pressable key={n} onPress={() => setStars(n)} hitSlop={8}>
+                  <Text style={[styles.star, n <= stars && styles.starActive]}>★</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Izoh (ixtiyoriy)"
+              placeholderTextColor={COLORS.gray}
+              value={comment}
+              onChangeText={setComment}
+              maxLength={200}
+            />
+            <View style={styles.row}>
+              <Pressable style={styles.secondaryButton} onPress={() => setRateRide(null)}>
+                <Text style={styles.secondaryButtonText}>O'tkazib yuborish</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton, styles.flex]} onPress={submitRating} disabled={busy}>
+                <Text style={styles.primaryButtonText}>Baholash</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : permission === 'denied' || permission === 'blocked' ? (
           <>
             <Text style={styles.title}>Joylashuvga ruxsat kerak</Text>
             <Text style={styles.subtitle}>
@@ -483,8 +543,8 @@ export default function App() {
             )}
             {tariff && (
               <Text style={styles.subtitle}>
-                Narx: 1 km — {tariff.day_per_km_uzs} so'm (kechasi {tariff.night_per_km_uzs}), eng kami{' '}
-                {tariff.min_fare_uzs} so'm · naqd
+                Narx: {tariff.base_fare_uzs} so'm + 1 km uchun {tariff.day_per_km_uzs} so'm (kechasi{' '}
+                {tariff.night_per_km_uzs}) · naqd
               </Text>
             )}
             <TextInput
@@ -520,6 +580,47 @@ export default function App() {
       </View>
     </KeyboardAvoidingView>
   );
+}
+
+// Sozlamada xato bo'lsa — yopilib qolish o'rniga sababini ko'rsatamiz
+export default function App() {
+  if (supabaseConfigError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0B0B0C', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ color: '#D4AF37', fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Sozlama xatosi</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 15 }}>{supabaseConfigError}</Text>
+      </View>
+    );
+  }
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+// Kutilmagan xato bo'lsa ilova yopilib qolmasdan, xato matnini ekranda ko'rsatadi
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#0B0B0C', justifyContent: 'center', padding: 24 }}>
+          <Text style={{ color: '#D4AF37', fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Xato yuz berdi</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 14 }} selectable>
+            {String(this.state.error?.message ?? this.state.error)}
+          </Text>
+          <Text style={{ color: '#9A9A9F', fontSize: 12, marginTop: 12 }}>
+            Shu ekranni screenshot qilib dasturchiga yuboring.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const PIN_HEAD = 34;
@@ -651,4 +752,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { color: COLORS.white, fontWeight: '600' },
   disabled: { opacity: 0.5 },
+  starsRow: { flexDirection: 'row', justifyContent: 'center', gap: 14, marginVertical: 6 },
+  star: { fontSize: 38, color: COLORS.border },
+  starActive: { color: COLORS.gold },
 });
